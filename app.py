@@ -3,14 +3,18 @@ import sqlite3
 import sys
 import os
 from openai import OpenAI
+
 # Добавляем текущую директорию в путь для импорта локальных модулей
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 st.set_page_config(
     page_title="B2B Unit Economics Service",
     layout="wide",
     page_icon="📦"
 )
+
 DB_PATH = "products_storage.db"
+
 def init_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
@@ -40,6 +44,7 @@ def init_db():
     """)
     conn.commit()
     return conn
+
 def normalize_value(raw, unit):
     try:
         v = float(str(raw).replace(",", ".").strip())
@@ -51,6 +56,7 @@ def normalize_value(raw, unit):
     if u in ("г", "g", "гр", "gr"):
         return v / 1000.0
     return v
+
 def get_ai_category(name: str, categories: list, conn, client_key: str) -> str:
     c = conn.cursor()
     row = c.execute(
@@ -91,6 +97,7 @@ def get_ai_category(name: str, categories: list, conn, client_key: str) -> str:
     )
     conn.commit()
     return category
+
 def calc_tax(revenue: float, cost_total: float, regime: str):
     profit_before = revenue - cost_total
     rates = {
@@ -109,8 +116,10 @@ def calc_tax(revenue: float, cost_total: float, regime: str):
     profit_after = profit_before - tax
     margin_after = (profit_after / revenue * 100) if revenue > 0 else 0
     return round(tax, 2), round(profit_after, 2), round(margin_after, 1)
+
 # ── Инициализация БД ──────────────────────────────────────────────
 conn = init_db()
+
 # ── Обработка API ключа (Secrets / Session State) ─────────────────
 if "openai_key" not in st.session_state:
     secret_key = st.secrets.get("OPENAI_API_KEY")
@@ -118,13 +127,16 @@ if "openai_key" not in st.session_state:
         st.session_state["openai_key"] = secret_key
     else:
         st.session_state["openai_key"] = ""
-# ── Выбор клиента ─────────────────────────────────────────────────
-client_choice = st.sidebar.selectbox(
-    "Клиент (маркетплейс)",
+
+# ── Выбор клиента (В основном теле приложения) ──────────────────────
+st.markdown("### 🛠️ Управление сервисом")
+client_choice = st.selectbox(
+    "Выберите клиента или раздел",
     ["М.Видео (FBS)", "Лемана Про (FBS)", "DNS (FBS)", "Ситилинк (FBS)", "Спортмастер (FBS)", "PIM (каталог товаров)"],
     key="client_choice"
 )
-# ── Боковая панель (только для не-PIM клиентов) ───────────────────
+
+# ── Боковая панель (ПОЛНОСТЬЮ СКРЫТА ДЛЯ PIM) ────────────────────────
 if client_choice != "PIM (каталог товаров)":
     with st.sidebar:
         st.title("📦 Unit Economics")
@@ -147,11 +159,9 @@ if client_choice != "PIM (каталог товаров)":
             min_value=0.0, max_value=99.0, key="target_margin"
         )
         
-        # Скрываем поле "Эквайринг" и "Досрочный вывод" для Лемана Про по запросу (1)
         if client_choice != "Лемана Про (FBS)":
             acquiting_val = 1.5
             early_payout_val = 0.0
-            
             acquiring = st.number_input(
                 "Интернет-эквайринг, %", value=acquiting_val, step=0.1,
                 min_value=0.0, key="acquiring"
@@ -165,34 +175,26 @@ if client_choice != "PIM (каталог товаров)":
             st.session_state["early_payout"] = 0.0
             acquiring = 0.0
             early_payout = 0.0
-        marketing = st.number_input(
-            "Маркетинг / ретро, %", value=0.0, step=0.5,
-            min_value=0.0, key="marketing"
-        )
-        extra_costs = st.number_input(
-            "Доп. расходы, руб/шт", value=0.0, step=10.0,
-            min_value=0.0, key="extra_costs"
-        )
-        extra_logistics = st.number_input(
-            "Доп. логистика, руб/шт", value=0.0, step=10.0,
-            min_value=0.0, key="extra_logistics"
-        )
+
+        marketing = st.number_input("Маркетинг / ретро, %", value=0.0, step=0.5, key="marketing")
+        extra_costs = st.number_input("Доп. расходы, руб/шт", value=0.0, step=10.0, key="extra_costs")
+        extra_logistics = st.number_input("Доп. логистика, руб/шт", value=0.0, step=10.0, key="extra_logistics")
         
         if not st.session_state.get("openai_key"):
             st.divider()
             st.subheader("🤖 AI-классификация")
-            openai_key_input = st.text_input(
-                "OpenAI API ключ", type="password", key="openai_key_input"
-            )
+            openai_key_input = st.text_input("OpenAI API ключ", type="password", key="openai_key_input")
             if openai_key_input:
                 st.session_state["openai_key"] = openai_key_input
                 st.rerun()
         else:
             st.divider()
-            st.caption("🤖 AI-классификация: Активна (ключ из secrets/сессии)")
+            st.caption("🤖 AI-классификация: Активна")
         
         st.divider()
-        st.caption("B2B Unit Economics Service v2.6")
+        st.caption("B2B Unit Economics Service v2.7")
+
+# Собираем параметры
 params = {
     "tax_regime": st.session_state.get("tax_regime", "УСН Доходы (6%)"),
     "target_margin": st.session_state.get("target_margin", 20.0),
@@ -202,6 +204,8 @@ params = {
     "extra_costs": st.session_state.get("extra_costs", 0.0),
     "extra_logistics": st.session_state.get("extra_logistics", 0.0),
 }
+
+# ── Рендеринг модулей ──────────────────────────────────────────────
 if client_choice == "М.Видео (FBS)":
     import mvideo
     mvideo.render(conn, get_ai_category, normalize_value, calc_tax, params)
