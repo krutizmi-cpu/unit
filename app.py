@@ -135,7 +135,14 @@ client_choice = st.selectbox(
     ["М.Видео (FBS)", "Лемана Про (FBS)", "DNS (FBS)", "Ситилинк (FBS)", "Спортмастер (FBS)", "PIM (каталог товаров)"],
     key="client_choice"
 )
-
+if client_choice == "PIM (каталог товаров)":
+    st.markdown("""
+        <style>
+            [data-testid="stSidebar"] { display: none !important; }
+            [data-testid="stSidebarNav"] { display: none !important; }
+            [data-testid="collapsedControl"] { display: none !important; }
+        </style>
+    """, unsafe_allow_html=True)
 # ── Боковая панель (ПОЛНОСТЬЮ СКРЫТА ДЛЯ PIM) ────────────────────────
 if client_choice != "PIM (каталог товаров)":
     with st.sidebar:
