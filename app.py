@@ -30,11 +30,9 @@ def init_db():
             cost REAL DEFAULT 0
         )
     """)
-    
     cols = [r[1] for r in c.execute("PRAGMA table_info(products)")]
     if "cost" not in cols:
         c.execute("ALTER TABLE products ADD COLUMN cost REAL DEFAULT 0")
-        
     c.execute("""
         CREATE TABLE IF NOT EXISTS ai_cache (
             name TEXT,
@@ -52,27 +50,26 @@ def normalize_value(raw, unit):
     except (ValueError, TypeError):
         return 0.0
     u = str(unit).strip().lower() if unit else ""
-    if u in ("мм", "mm"): return v / 10.0
-    if u in ("г", "g", "гр", "gr"): return v / 1000.0
+    if u in ("мм", "mm"):
+        return v / 10.0
+    if u in ("г", "g", "гр", "gr"):
+        return v / 1000.0
     return v
 
 def get_ai_category(name: str, categories: list, conn, client_key: str) -> str:
     c = conn.cursor()
     row = c.execute(
-        "SELECT category FROM ai_cache WHERE name=? AND client=?", 
+        "SELECT category FROM ai_cache WHERE name=? AND client=?",
         (name, client_key)
     ).fetchone()
     if row:
         return row[0]
-    
     api_key = st.session_state.get("openai_key", "")
     if not api_key or not categories:
         return categories[0] if categories else "Неизвестно"
-        
     try:
         client = OpenAI(api_key=api_key)
-        cats_str = "\
-".join(f"- {cat}" for cat in categories)
+        cats_str = "\n".join(f"- {cat}" for cat in categories)
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -80,9 +77,7 @@ def get_ai_category(name: str, categories: list, conn, client_key: str) -> str:
                     f"Ты классификатор товаров для маркетплейса {client_key}. "
                     "Выбери ОДНУ категорию из списка. Ответь ТОЛЬКО её названием."
                 )},
-                {"role": "user", "content": f"Товар: {name}\
-Категории:\
-{cats_str}"}
+                {"role": "user", "content": f"Товар: {name}\nКатегории:\n{cats_str}"}
             ],
             max_tokens=60,
             temperature=0
@@ -92,7 +87,6 @@ def get_ai_category(name: str, categories: list, conn, client_key: str) -> str:
             category = categories[0]
     except Exception:
         category = categories[0] if categories else "Неизвестно"
-        
     c.execute(
         "INSERT OR REPLACE INTO ai_cache (name, client, category) VALUES (?,?,?)",
         (name, client_key, category)
@@ -144,15 +138,39 @@ if "PIM" not in client_choice:
         st.title("📦 Unit Economics")
         st.divider()
         st.subheader("⚙️ Параметры расчёта")
+        
         tax_regime = st.selectbox(
             "Система налогообложения",
             [
-                "ОСНО (25% от прибыли)", "УСН Доходы (6%)", "УСН Доходы-Расходы (15%)", 
-                "АУСН (8% от дохода)", "УСН с НДС 5%", "УСН с НДС 7%"
+                "ОСНО (25% от прибыли)",
+                "УСН Доходы (6%)",
+                "УСН Доходы-Расходы (15%)",
+                "АУСН (8% от дохода)",
+                "УСН с НДС 5%",
+                "УСН с НДС 7%"
             ],
             key="tax_regime"
         )
-        params = {"tax_regime": tax_regime}
+        
+        st.divider()
+        st.subheader("📊 Параметры менеджера")
+        
+        buyout = st.slider("Выкупаемость, %", 10, 100, 85, key="buyout")
+        defect = st.slider("Брак, %", 0, 20, 2, key="defect")
+        ad = st.slider("Реклама, %", 0, 50, 10, key="ad")
+        boost = st.slider("Буст продаж, %", 0, 20, 5, key="boost")
+        target_margin = st.slider("Целевая маржа, %", 0, 50, 20, key="target_margin")
+        
+        params = {
+            "tax_regime": tax_regime,
+            "buyout": buyout,
+            "defect": defect,
+            "ad": ad,
+            "boost": boost,
+            "target_margin": target_margin
+        }
+else:
+    params = {}
 
 # ── Рендеринг ──────────────────────────────────────────────
 if client_choice == "Ozon (FBO/FBS)":
