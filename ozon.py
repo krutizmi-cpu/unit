@@ -27,28 +27,32 @@ CATEGORY_COMMISSIONS = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. ЛОГИСТИКА OZON FBS
-# Базовый тариф: 75 руб за 1 л (объемный вес), минимум 75 руб
-# Объёмный вес = L*W*H (см) / 5000
+# 2. ЛОГИСТИКА OZON FBS (Актуально на 2025-2026)
+# Источник: seller-edu.ozon.ru/libra/commissions-tariffs/commissions-tariffs-ozon/rashody-na-dostavku#fbs
 # ─────────────────────────────────────────────────────────────────────────────
-def get_logistics_tariff(weight_kg, length_cm=0, width_cm=0, height_cm=0):
-    # Объёмный вес
-    vol_weight = (length_cm * width_cm * height_cm) / 5000.0 if length_cm > 0 else 0
-    # Расчётный вес - больший из физического и объёмного
-    calc_weight = max(weight_kg, vol_weight)
-    # Тариф FBS Ozon: 75 руб первый кг + 11 руб каждый доп кг
-    if calc_weight <= 1:
-        tariff = 75.0
-    elif calc_weight <= 5:
-        tariff = 75.0 + (calc_weight - 1) * 11.0
-    elif calc_weight <= 15:
-        tariff = 75.0 + 4 * 11.0 + (calc_weight - 5) * 9.0
-    else:
-        tariff = 75.0 + 4 * 11.0 + 10 * 9.0 + (calc_weight - 15) * 7.0
-    # Последняя миля (доставка до покупателя): ~40-80 руб
-    last_mile = 50.0
-    return round(tariff + last_mile, 2)
 
+def get_logistics_tariff(weight_kg, length_cm=0, width_cm=0, height_cm=0):
+    """
+    Расчет логистики Ozon FBS.
+    Базовый тариф зависит от цены, объема и направления.
+    Для упрощения берем средний тариф по весу/объему.
+    """
+    # Объёмный вес (л)
+    vol_liters = (length_cm * width_cm * height_cm) / 1000.0 if length_cm > 0 else 0
+    
+    # Тариф логистики (базовый пример из справки): ~83 руб за 0.4л при цене 11к
+    # В реальности это сложная таблица. Используем аппроксимацию:
+    # 75 руб + доплата за объем/вес
+    base_logistics = 80.0
+    volume_surcharge = max(vol_liters, weight_kg) * 5.0 # Условный коэффициент
+    
+    # Последняя миля (доставка до места выдачи): до 25 руб
+    last_mile = 25.0
+    
+    # Обработка отправления (СЦ): 20 руб
+    processing = 20.0
+    
+    return round(base_logistics + volume_surcharge + last_mile + processing, 2)
 
 def render(conn, get_ai_category, normalize_value, calc_tax, params: dict):
     st.header("Ozon — Юнит-экономика (FBS)")
@@ -57,9 +61,11 @@ def render(conn, get_ai_category, normalize_value, calc_tax, params: dict):
     with st.sidebar:
         st.divider()
         st.subheader("Комиссии Ozon")
+        
         uploaded_comm = st.file_uploader(
             "Загрузить Excel с комиссиями", type=["xlsx"], key="ozon_comm_upload"
         )
+        
         if uploaded_comm and st.button("Обновить справочник", key="ozon_update_comm"):
             try:
                 df_comm = pd.read_excel(uploaded_comm)
@@ -73,6 +79,7 @@ def render(conn, get_ai_category, normalize_value, calc_tax, params: dict):
                             new_comm[name] = val
                     except (ValueError, TypeError):
                         pass
+                
                 if new_comm:
                     st.session_state["ozon_commissions"] = new_comm
                     st.success(f"Обновлено {len(new_comm)} категорий")
@@ -86,7 +93,7 @@ def render(conn, get_ai_category, normalize_value, calc_tax, params: dict):
         else:
             st.caption(f"Используется справочник по умолчанию ({len(CATEGORY_COMMISSIONS)} категорий)")
 
-    commissions: dict = st.session_state.get("ozon_commissions", CATEGORY_COMMISSIONS)
+        commissions: dict = st.session_state.get("ozon_commissions", CATEGORY_COMMISSIONS)
 
     # ── Блок 1: Каталог товаров ─────────────────────────────────────────────
     with st.expander("Блок 1. Каталог товаров", expanded=True):
@@ -98,9 +105,9 @@ def render(conn, get_ai_category, normalize_value, calc_tax, params: dict):
 
         uploaded = st.file_uploader(
             "Excel: SKU | Название | Длина | Ширина | Высота | Вес | Себестоимость",
-            type=["xlsx", "xls"],
-            key="ozon_upload"
+            type=["xlsx", "xls"], key="ozon_upload"
         )
+
         if uploaded and st.button("Сохранить в каталог", key="ozon_save"):
             df = pd.read_excel(uploaded)
             df.columns = [str(c).strip() for c in df.columns]
@@ -113,23 +120,23 @@ def render(conn, get_ai_category, normalize_value, calc_tax, params: dict):
                     if not sku or not name:
                         skipped += 1
                         continue
+                    
                     l = normalize_value(row.get("Длина", 0), dim_unit)
                     w = normalize_value(row.get("Ширина", 0), dim_unit)
                     h = normalize_value(row.get("Высота", 0), dim_unit)
                     wt = normalize_value(row.get("Вес", 0), wt_unit)
-                    cost = float(
-                        str(row.get("Себестоимость", row.get("Закупка", 0))).replace(",", ".") or 0
-                    )
+                    cost = float(str(row.get("Себестоимость", row.get("Закупка", 0))).replace(",", ".") or 0)
+                    
                     cur.execute("""
                         INSERT INTO products (sku, name, length_cm, width_cm, height_cm, weight_kg, cost)
                         VALUES (?,?,?,?,?,?,?)
                         ON CONFLICT(sku) DO UPDATE SET
-                        name=excluded.name,
-                        length_cm=excluded.length_cm,
-                        width_cm=excluded.width_cm,
-                        height_cm=excluded.height_cm,
-                        weight_kg=excluded.weight_kg,
-                        cost=excluded.cost
+                            name=excluded.name,
+                            length_cm=excluded.length_cm,
+                            width_cm=excluded.width_cm,
+                            height_cm=excluded.height_cm,
+                            weight_kg=excluded.weight_kg,
+                            cost=excluded.cost
                     """, (sku, name, l, w, h, wt, cost))
                     saved += 1
                 except Exception:
@@ -140,6 +147,7 @@ def render(conn, get_ai_category, normalize_value, calc_tax, params: dict):
         all_products = conn.execute(
             "SELECT sku, name, length_cm, width_cm, height_cm, weight_kg, cost FROM products"
         ).fetchall()
+        
         if all_products:
             df_show = pd.DataFrame(
                 all_products,
@@ -149,9 +157,6 @@ def render(conn, get_ai_category, normalize_value, calc_tax, params: dict):
         else:
             st.info("Каталог пуст. Загрузите Excel.")
 
-    all_products = conn.execute(
-        "SELECT sku, name, length_cm, width_cm, height_cm, weight_kg, cost FROM products"
-    ).fetchall()
     if not all_products:
         st.warning("Загрузите каталог товаров для расчёта.")
         return
@@ -159,6 +164,7 @@ def render(conn, get_ai_category, normalize_value, calc_tax, params: dict):
     # ── Блок 2: Расчёт юнит-экономики ──────────────────────────────────────
     with st.expander("Блок 2. Расчёт юнит-экономики", expanded=True):
         cat_list = list(commissions.keys())
+        
         if st.button("Рассчитать РРЦ для всего каталога", key="ozon_calc"):
             target_m = params["target_margin"]
             acq = params["acquiring"]
@@ -172,18 +178,21 @@ def render(conn, get_ai_category, normalize_value, calc_tax, params: dict):
             for p in all_products:
                 sku, name, l, w, h, wt, cost = p
                 cost = cost or 0.0
-
+                
                 # Логистика Ozon FBS (с учётом габаритов)
                 logistics_ozon = get_logistics_tariff(wt, l, w, h)
                 logistics_total = logistics_ozon + extra_l
-
+                
                 # AI Классификация
                 category = get_ai_category(name, cat_list, conn, "ozon")
                 commission = commissions.get(category, 0.0)
-
+                
                 # Формула РРЦ
+                # k_percent = Комиссия + Эквайринг + Доп. услуги + Маркетинг
                 k_percent = commission + acq + ep + mkt
+                
                 denom = 1 - (k_percent / 100) - (target_m / 100)
+                
                 if denom > 0 and cost > 0:
                     rrc = (cost + logistics_total + extra_c) / denom
                 else:
@@ -193,8 +202,9 @@ def render(conn, get_ai_category, normalize_value, calc_tax, params: dict):
                     percent_costs = rrc * (k_percent / 100)
                     profit_before = rrc - cost - logistics_total - extra_c - percent_costs
                     margin_before = (profit_before / rrc * 100) if rrc > 0 else 0
+                    
                     tax, profit_after, margin_after = calc_tax(
-                        rrc,
+                        rrc, 
                         cost + logistics_total + extra_c + percent_costs,
                         tax_regime
                     )
@@ -216,10 +226,11 @@ def render(conn, get_ai_category, normalize_value, calc_tax, params: dict):
                     "Прибыль после налога, руб": round(profit_after, 0),
                     "Маржа после налога, %": round(margin_after, 1),
                 })
-
+            
             res_df = pd.DataFrame(results)
             st.subheader("Результаты расчёта")
             st.dataframe(res_df, use_container_width=True)
+            
             st.download_button(
                 "Скачать результат (CSV)",
                 res_df.to_csv(index=False).encode("utf-8"),
