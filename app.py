@@ -132,7 +132,7 @@ if "openai_key" not in st.session_state:
 st.markdown("### 🛠️ Управление сервисом")
 client_choice = st.selectbox(
     "Выберите клиента или раздел",
-    ["М.Видео (FBS)", "Лемана Про (FBS)", "DNS (FBS)", "Ситилинк (FBS)", "Спортмастер (FBS)", "PIM (каталог товаров)"],
+            ["М.Видео (FBS)", "Лемана Про (FBS)", "Ozon (FBS)", "Ситилинк (FBS)", "Спортмастер (FBS)", "PIM (каталог товаров)"],
     key="client_choice"
 )
 if client_choice == "PIM (каталог товаров)":
@@ -219,9 +219,9 @@ if client_choice == "М.Видео (FBS)":
 elif client_choice == "Лемана Про (FBS)":
     import lemanpro_fbs
     lemanpro_fbs.render(conn, get_ai_category, normalize_value, calc_tax, params)
-elif client_choice == "DNS (FBS)":
-    import dns
-    dns.render(conn, get_ai_category, normalize_value, calc_tax, params)
+elif client_choice == "Ozon (FBS)":
+        import ozon
+        ozon.render(conn, get_ai_category, normalize_value, calc_tax, params)
 elif client_choice == "Ситилинк (FBS)":
     import citilink
     citilink.render(conn, get_ai_category, normalize_value, calc_tax, params)
