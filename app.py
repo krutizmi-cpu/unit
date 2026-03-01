@@ -30,10 +30,11 @@ def init_db():
             cost REAL DEFAULT 0
         )
     """)
+    
     cols = [r[1] for r in c.execute("PRAGMA table_info(products)")]
     if "cost" not in cols:
         c.execute("ALTER TABLE products ADD COLUMN cost REAL DEFAULT 0")
-    
+        
     c.execute("""
         CREATE TABLE IF NOT EXISTS ai_cache (
             name TEXT,
@@ -51,16 +52,14 @@ def normalize_value(raw, unit):
     except (ValueError, TypeError):
         return 0.0
     u = str(unit).strip().lower() if unit else ""
-    if u in ("мм", "mm"):
-        return v / 10.0
-    if u in ("г", "g", "гр", "gr"):
-        return v / 1000.0
+    if u in ("мм", "mm"): return v / 10.0
+    if u in ("г", "g", "гр", "gr"): return v / 1000.0
     return v
 
 def get_ai_category(name: str, categories: list, conn, client_key: str) -> str:
     c = conn.cursor()
     row = c.execute(
-        "SELECT category FROM ai_cache WHERE name=? AND client=?",
+        "SELECT category FROM ai_cache WHERE name=? AND client=?", 
         (name, client_key)
     ).fetchone()
     if row:
@@ -69,10 +68,11 @@ def get_ai_category(name: str, categories: list, conn, client_key: str) -> str:
     api_key = st.session_state.get("openai_key", "")
     if not api_key or not categories:
         return categories[0] if categories else "Неизвестно"
-    
+        
     try:
         client = OpenAI(api_key=api_key)
-        cats_str = chr(10).join(f"- {cat}" for cat in categories)
+        cats_str = "
+".join(f"- {cat}" for cat in categories)
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -80,7 +80,9 @@ def get_ai_category(name: str, categories: list, conn, client_key: str) -> str:
                     f"Ты классификатор товаров для маркетплейса {client_key}. "
                     "Выбери ОДНУ категорию из списка. Ответь ТОЛЬКО её названием."
                 )},
-                {"role": "user", "content": f"Товар: {name}{chr(10)}Категории:{chr(10)}{cats_str}"}
+                {"role": "user", "content": f"Товар: {name}
+Категории:
+{cats_str}"}
             ],
             max_tokens=60,
             temperature=0
@@ -90,7 +92,7 @@ def get_ai_category(name: str, categories: list, conn, client_key: str) -> str:
             category = categories[0]
     except Exception:
         category = categories[0] if categories else "Неизвестно"
-    
+        
     c.execute(
         "INSERT OR REPLACE INTO ai_cache (name, client, category) VALUES (?,?,?)",
         (name, client_key, category)
@@ -128,23 +130,16 @@ if "openai_key" not in st.session_state:
     else:
         st.session_state["openai_key"] = ""
 
-# ── Выбор клиента (В основном теле приложения) ──────────────────────
+# ── Выбор раздела ─────────────────────────────────────────────
 st.markdown("### 🛠️ Управление сервисом")
 client_choice = st.selectbox(
     "Выберите клиента или раздел",
-            ["М.Видео (FBS)", "Лемана Про (FBS)", "Ozon (FBS)", "Ситилинк (FBS)", "Спортмастер (FBS)", "PIM (каталог товаров)"],
+    ["Ozon (FBO/FBS)", "PIM (единая база)", "М.Видео (FBS)", "Лемана Про (FBS)", "Ситилинк (FBS)", "Спортмастер (FBS)"],
     key="client_choice"
 )
-if client_choice == "PIM (каталог товаров)":
-    st.markdown("""
-        <style>
-            [data-testid="stSidebar"] { display: none !important; }
-            [data-testid="stSidebarNav"] { display: none !important; }
-            [data-testid="collapsedControl"] { display: none !important; }
-        </style>
-    """, unsafe_allow_html=True)
-# ── Боковая панель (ПОЛНОСТЬЮ СКРЫТА ДЛЯ PIM) ────────────────────────
-if client_choice != "PIM (каталог товаров)":
+
+# ── Боковая панель ────────────────────────────────────────
+if "PIM" not in client_choice:
     with st.sidebar:
         st.title("📦 Unit Economics")
         st.divider()
@@ -152,84 +147,31 @@ if client_choice != "PIM (каталог товаров)":
         tax_regime = st.selectbox(
             "Система налогообложения",
             [
-                "ОСНО (25% от прибыли)",
-                "УСН Доходы (6%)",
-                "УСН Доходы-Расходы (15%)",
-                "АУСН (8% от дохода)",
-                "УСН с НДС 5%",
-                "УСН с НДС 7%",
+                "ОСНО (25% от прибыли)", "УСН Доходы (6%)", "УСН Доходы-Расходы (15%)", 
+                "АУСН (8% от дохода)", "УСН с НДС 5%", "УСН с НДС 7%"
             ],
             key="tax_regime"
         )
-        target_margin = st.number_input(
-            "Таргет маржа, %", value=20.0, step=0.5,
-            min_value=0.0, max_value=99.0, key="target_margin"
-        )
-        
-        if client_choice != "Лемана Про (FBS)":
-            acquiting_val = 1.5
-            early_payout_val = 0.0
-            acquiring = st.number_input(
-                "Интернет-эквайринг, %", value=acquiting_val, step=0.1,
-                min_value=0.0, key="acquiring"
-            )
-            early_payout = st.number_input(
-                "Досрочный вывод, %", value=early_payout_val, step=0.1,
-                min_value=0.0, key="early_payout"
-            )
-        else:
-            st.session_state["acquiring"] = 0.0
-            st.session_state["early_payout"] = 0.0
-            acquiring = 0.0
-            early_payout = 0.0
+        params = {"tax_regime": tax_regime}
 
-        marketing = st.number_input("Маркетинг / ретро, %", value=0.0, step=0.5, key="marketing")
-        extra_costs = st.number_input("Доп. расходы, руб/шт", value=0.0, step=10.0, key="extra_costs")
-        extra_logistics = st.number_input("Доп. логистика, руб/шт", value=0.0, step=10.0, key="extra_logistics")
-        
-        if not st.session_state.get("openai_key"):
-            st.divider()
-            st.subheader("🤖 AI-классификация")
-            openai_key_input = st.text_input("OpenAI API ключ", type="password", key="openai_key_input")
-            if openai_key_input:
-                st.session_state["openai_key"] = openai_key_input
-                st.rerun()
-        else:
-            st.divider()
-            st.caption("🤖 AI-классификация: Активна")
-        
-        st.divider()
-        st.caption("B2B Unit Economics Service v2.7")
-
-# Собираем параметры
-params = {
-    "tax_regime": st.session_state.get("tax_regime", "УСН Доходы (6%)"),
-    "target_margin": st.session_state.get("target_margin", 20.0),
-    "acquiring": st.session_state.get("acquiring", 1.5),
-    "early_payout": st.session_state.get("early_payout", 0.0),
-    "marketing": st.session_state.get("marketing", 0.0),
-    "extra_costs": st.session_state.get("extra_costs", 0.0),
-    "extra_logistics": st.session_state.get("extra_logistics", 0.0),
-}
-
-# ── Рендеринг модулей ──────────────────────────────────────────────
-if client_choice == "М.Видео (FBS)":
+# ── Рендеринг ──────────────────────────────────────────────
+if client_choice == "Ozon (FBO/FBS)":
+    import ozon
+    ozon.render(conn, get_ai_category, normalize_value, calc_tax, params)
+elif client_choice == "PIM (единая база)":
+    import pim
+    pim.render(conn, normalize_value, st.session_state.get("openai_key", ""))
+elif client_choice == "М.Видео (FBS)":
     import mvideo
     mvideo.render(conn, get_ai_category, normalize_value, calc_tax, params)
 elif client_choice == "Лемана Про (FBS)":
     import lemanpro_fbs
     lemanpro_fbs.render(conn, get_ai_category, normalize_value, calc_tax, params)
-elif client_choice == "Ozon (FBS)":
-        import ozon
-        ozon.render(conn, get_ai_category, normalize_value, calc_tax, params)
 elif client_choice == "Ситилинк (FBS)":
     import citilink
     citilink.render(conn, get_ai_category, normalize_value, calc_tax, params)
 elif client_choice == "Спортмастер (FBS)":
     import sportmaster_fbs
     sportmaster_fbs.render(conn, get_ai_category, normalize_value, calc_tax, params)
-elif client_choice == "PIM (каталог товаров)":
-    import pim
-    pim.render(conn, normalize_value, st.session_state.get("openai_key", ""))
 else:
-    st.info(f"🔧 Модуль '{client_choice}' находится в разработке.")
+    st.info("🔧 Раздел находится в разработке.")
