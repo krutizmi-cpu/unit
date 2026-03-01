@@ -71,7 +71,7 @@ def get_ai_category(name: str, categories: list, conn, client_key: str) -> str:
         
     try:
         client = OpenAI(api_key=api_key)
-        cats_str = "
+        cats_str = "\
 ".join(f"- {cat}" for cat in categories)
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -80,8 +80,8 @@ def get_ai_category(name: str, categories: list, conn, client_key: str) -> str:
                     f"Ты классификатор товаров для маркетплейса {client_key}. "
                     "Выбери ОДНУ категорию из списка. Ответь ТОЛЬКО её названием."
                 )},
-                {"role": "user", "content": f"Товар: {name}
-Категории:
+                {"role": "user", "content": f"Товар: {name}\
+Категории:\
 {cats_str}"}
             ],
             max_tokens=60,
